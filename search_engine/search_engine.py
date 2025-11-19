@@ -1,19 +1,48 @@
 """Search engine module."""
+import re
+
+
+def normalize_text(text):
+    """
+    Нормализует текст: извлекает слова, приводит к нижнему регистру.
+
+    Args:
+        text: Входная строка.
+
+    Returns:
+        Список слов (термов) в нижнем регистре.
+    """
+    return [word.lower() for word in re.findall(r'\w+', text)]
 
 
 def search(docs, query):
     """
-    Search for documents containing the query string.
+    Поиск документов по запросу с учетом нормализации.
 
     Args:
-        docs: A list of documents, where each doc is a dict with 'id' and 'text'.
-        query: The string to search for.
+        docs: Список документов.
+        query: Поисковый запрос (слово).
 
     Returns:
-        A list of document IDs that contain the query.
+        Список id документов, содержащих искомое слово.
     """
-    if not docs:
+    if not query:
         return []
 
-    return [doc['id'] for doc in docs if query in doc['text']]
+    # Нормализуем поисковый запрос. Так как это одно слово, берем первый элемент.
+    # Если запрос пустой или состоит только из знаков, findall вернет [],
+    # что обработается далее.
+    processed_query_list = normalize_text(query)
+    if not processed_query_list:
+        return []
+    search_term = processed_query_list[0]
+
+    result = []
+    for doc in docs:
+        # Нормализуем текст документа
+        doc_terms = normalize_text(doc['text'])
+        if search_term in doc_terms:
+            result.append(doc['id'])
+
+    return result
 
