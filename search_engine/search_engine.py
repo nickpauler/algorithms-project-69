@@ -4,8 +4,9 @@
 """
 
 import re
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -23,16 +24,13 @@ class Doc:
 
 def search(docs: List[Any], query: str) -> List[str]:
     """
-    Поиск документов по запросу с учетом релевантности.
+    Поиск документов по запросу с использованием обратного индекса.
 
-    Поддерживает:
-    - объекты Doc;
-    - словари формата {"id": ..., "text": ...};
-    - многословные запросы (каждое слово учитывается отдельно);
-    - игнорирование коротких служебных слов в запросе и документах.
-
-    Возвращает список id документов, отсортированных по релевантности
-    (убывание) и id (возрастание при равной релевантности).
+    Этапы:
+    1. Подготовка данных (токенизация).
+    2. Построение обратного индекса.
+    3. Быстрый отбор кандидатов (через индекс).
+    4. Ранжирование (релевантность, спам в конец).
     """
     processed_docs = _preprocessing(docs)
     query_tokens = _preprocessing_text(query)
@@ -40,17 +38,14 @@ def search(docs: List[Any], query: str) -> List[str]:
     if not query_tokens:
         return []
 
-    processed_searched_docs = _preprocessing_search(
-        processed_docs,
-        query_tokens,
-    )
-    if not processed_searched_docs:
+    # Строим индекс и фильтруем кандидатов (вместо перебора всех docs)
+    index = _build_inverted_index(docs)
+    candidates = _get_candidates_by_index(index, query_tokens, processed_docs)
+
+    if not candidates:
         return []
 
-    ranked_docs = _calculate_rank(
-        processed_searched_docs,
-        query_tokens,
-    )
+    ranked_docs = _calculate_rank(candidates, query_tokens)
     sorted_ranked_docs = _sort_ranked_docs(ranked_docs)
 
     return [doc.id for doc in sorted_ranked_docs]
@@ -92,27 +87,52 @@ def _preprocessing(docs: List[Any]) -> List[_ProcessingDoc]:
 def _preprocessing_text(text: str) -> List[str]:
     """
     Нормализация текста:
-    - достаём последовательности букв/цифр через re.findall(r'\\w+');
+    - достаём последовательности букв/цифр;
     - приводим к нижнему регистру;
-    - выбрасываем короткие слова (меньше 4 символов), чтобы
-      не учитывать служебные слова вроде 'the', 'is', 'a'.
+    - выбрасываем слова короче 4 символов.
     """
     raw_tokens = re.findall(r"\w+", text.lower())
     return [token for token in raw_tokens if len(token) >= 4]
 
 
-def _preprocessing_search(
-    docs: List[_ProcessingDoc],
+def _build_inverted_index(docs: List[Any]) -> Dict[str, Dict[str, int]]:
+    """
+    Построение обратного индекса:
+    term -> {doc_id: term_frequency_in_doc}
+    """
+    index: Dict[str, Dict[str, int]] = defaultdict(dict)
+    for d in docs:
+        doc_id = d["id"] if isinstance(d, dict) else d.id
+        text = d["text"] if isinstance(d, dict) else d.text
+        # Используем ту же токенизацию, что и для запросов
+        tokens = _preprocessing_text(text)
+        freqs = Counter(tokens)
+        for term, cnt in freqs.items():
+            index[term][doc_id] = cnt
+    return index
+
+
+def _get_candidates_by_index(
+    index: Dict[str, Dict[str, int]],
     query_tokens: List[str],
+    processed_docs: List[_ProcessingDoc],
 ) -> List[_ProcessingDoc]:
     """
-    Фильтрация документов: оставляем только те, где есть
-    хотя бы одно слово из запроса.
+    Отбор документов-кандидатов через обратный индекс.
+    Если слово из запроса есть в индексе -> добавляем все docs с этим словом.
     """
+    candidate_ids = set()
+    for token in query_tokens:
+        # Объединяем множества ID документов для каждого слова запроса
+        candidate_ids |= set(index.get(token, {}).keys())
+
+    # Быстрый доступ к объектам _ProcessingDoc по ID
+    id_to_doc = {doc.id: doc for doc in processed_docs}
+
     return [
-        doc
-        for doc in docs
-        if any(token in doc.tokens for token in query_tokens)
+        id_to_doc[doc_id]
+        for doc_id in candidate_ids
+        if doc_id in id_to_doc
     ]
 
 
@@ -138,13 +158,11 @@ def _calculate_rank(
     query_tokens: List[str],
 ) -> List[_RankedDoc]:
     """
-    Расчет ранга для нечёткого поиска.
+    Расчет ранга (как в шаге 4):
+    1. match_count — уникальные слова.
+    2. total_occurrences — сумма вхождений.
 
-    1. match_count — сколько разных слов из запроса есть в документе.
-    2. total_occurrences — сколько всего раз слова из запроса встретились.
-
-    Для документов, помеченных как спам (id содержит 'spam'),
-    ранг принудительно занижается до нуля, чтобы они шли в конце.
+    Спам (id содержит 'spam') улетает в конец (rank=0).
     """
     unique_query_tokens = set(query_tokens)
     ranked: List[_RankedDoc] = []
@@ -170,10 +188,10 @@ def _calculate_rank(
 
 def _sort_ranked_docs(docs: List[_RankedDoc]) -> List[_RankedDoc]:
     """
-    Сортировка документов:
-    - по match_count (убывание);
-    - при равенстве — по total_occurrences (убывание);
-    - при равенстве — по id (возрастание).
+    Сортировка:
+    1. match_count (убывание)
+    2. total_occurrences (убывание)
+    3. id (возрастание)
     """
     return sorted(
         docs,
