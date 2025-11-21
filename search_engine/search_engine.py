@@ -41,13 +41,15 @@ def search(docs: List[Any], query: str) -> List[str]:
         return []
 
     processed_searched_docs = _preprocessing_search(
-        processed_docs, query_tokens
+        processed_docs,
+        query_tokens,
     )
     if not processed_searched_docs:
         return []
 
-    ranked_docs = _calculate_rank_by_tf(
-        processed_searched_docs, query_tokens
+    ranked_docs = _calculate_rank(
+        processed_searched_docs,
+        query_tokens,
     )
     sorted_ranked_docs = _sort_ranked_docs(ranked_docs)
 
@@ -82,7 +84,7 @@ def _preprocessing(docs: List[Any]) -> List[_ProcessingDoc]:
             doc_text = doc.text
 
         res.append(
-            _ProcessingDoc(doc_id, _preprocessing_text(doc_text))
+            _ProcessingDoc(doc_id, _preprocessing_text(doc_text)),
         )
     return res
 
@@ -93,7 +95,7 @@ def _preprocessing_text(text: str) -> List[str]:
     - достаём последовательности букв/цифр через re.findall(r'\\w+');
     - приводим к нижнему регистру;
     - выбрасываем короткие слова (меньше 4 символов), чтобы
-    не учитывать служебные слова вроде 'the', 'is', 'a'.
+      не учитывать служебные слова вроде 'the', 'is', 'a'.
     """
     raw_tokens = re.findall(r"\w+", text.lower())
     return [token for token in raw_tokens if len(token) >= 4]
@@ -122,37 +124,62 @@ class _RankedDoc:
     Attributes:
         id (str): Идентификатор документа.
         tokens (list[str]): Токены текста.
-        rank (float): Ранг релевантности (частота терминов запроса).
+        match_count (int): Количество уникальных слов из запроса.
+        total_occurrences (int): Общее число вхождений слов запроса.
     """
     id: str
     tokens: List[str]
-    rank: float
+    match_count: int
+    total_occurrences: int
 
 
-def _calculate_rank_by_tf(
+def _calculate_rank(
     docs: List[_ProcessingDoc],
     query_tokens: List[str],
 ) -> List[_RankedDoc]:
     """
-    Расчет ранга по метрике TF (term frequency):
-    сколько раз слова из запроса встретились в документе.
+    Расчет ранга для нечёткого поиска.
+
+    1. match_count — сколько разных слов из запроса есть в документе.
+    2. total_occurrences — сколько всего раз слова из запроса встретились.
+
     Для документов, помеченных как спам (id содержит 'spam'),
-    ранг принудительно занижается до 0, чтобы они шли в конце.
+    ранг принудительно занижается до нуля, чтобы они шли в конце.
     """
+    unique_query_tokens = set(query_tokens)
     ranked: List[_RankedDoc] = []
+
     for doc in docs:
         if "spam" in doc.id:
-            rank = 0
+            match_count = 0
+            total_occurrences = 0
         else:
-            rank = sum(1 for token in doc.tokens if token in query_tokens)
-        ranked.append(_RankedDoc(doc.id, doc.tokens, rank))
+            found_tokens = [
+                token
+                for token in doc.tokens
+                if token in unique_query_tokens
+            ]
+            match_count = len(set(found_tokens))
+            total_occurrences = len(found_tokens)
+
+        ranked.append(
+            _RankedDoc(doc.id, doc.tokens, match_count, total_occurrences),
+        )
     return ranked
 
 
 def _sort_ranked_docs(docs: List[_RankedDoc]) -> List[_RankedDoc]:
     """
     Сортировка документов:
-    - по рангу (убывание);
-    - при равном ранге — по id (возрастание).
+    - по match_count (убывание);
+    - при равенстве — по total_occurrences (убывание);
+    - при равенстве — по id (возрастание).
     """
-    return sorted(docs, key=lambda doc: (-doc.rank, doc.id))
+    return sorted(
+        docs,
+        key=lambda doc: (
+            -doc.match_count,
+            -doc.total_occurrences,
+            doc.id,
+        ),
+    )

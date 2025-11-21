@@ -100,3 +100,25 @@ def test_search_same_rank():
         Doc("doc3", "Don't shoot shoot shoot that thing at me.."),
     ]
     assert search(docs, "shoot") == ["doc1", "doc2", "doc3"]
+
+
+def test_fuzzy_search_shoot_at_me():
+    docs = [
+        Doc("doc1", "I can't shoot straight unless I've had a pint!"),
+        Doc("doc2", "Don't shoot shoot shoot that thing at me."),
+        Doc("doc3", "I'm your shooter."),
+    ]
+    assert search(docs, "shoot at me") == ["doc2", "doc1"]
+
+
+def test_fuzzy_search_rank_by_words_and_occurrences():
+    docs = [
+        Doc("doc1", "foo bar baz"),
+        Doc("doc2", "foo foo qux"),
+        Doc("doc3", "foo bar qux qux"),
+    ]
+    # запрос: 3 слова, но у доков совпадают по-разному
+    # doc3: foo, bar, qux -> 3 разных слова, много вхождений
+    # doc2: foo, qux -> 2 разных
+    # doc1: foo, bar -> 2 разных, но меньше вхождений, чем у doc2
+    assert search(docs, "foo bar qux") == ["doc3", "doc2", "doc1"]
