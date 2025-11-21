@@ -1,39 +1,102 @@
-"""Tests for search engine."""
-from search_engine.search_engine import search
+"""
+Тестирование поискового движка
+"""
+from search_engine.search_engine import Doc, search
 
 
-def test_search_base():
-    """Test base search functionality."""
-    doc1 = {'id': 'doc1', 'text': "I can't shoot straight unless I've had a pint!"}
-    doc2 = {'id': 'doc2', 'text': "Don't shoot shoot shoot that thing at me."}
-    doc3 = {'id': 'doc3', 'text': "I'm your shooter."}
-    docs = [doc1, doc2, doc3]
-
-    assert search(docs, 'shoot') == ['doc1', 'doc2']
-
-
-def test_search_with_punctuation():
-    """Test search handles punctuation."""
-    doc1 = {'id': 'doc1', 'text': "I can't shoot straight unless I've had a pint!"}
-    docs = [doc1]
-    assert search(docs, 'pint') == ['doc1']
-    assert search(docs, 'pint!') == ['doc1']
-
-
-def test_search_with_case_insensitivity():
-    """Test search is case-insensitive."""
-    doc1 = {'id': 'doc1', 'text': 'Shoot first, ask questions later.'}
-    docs = [doc1]
-    assert search(docs, 'shoot') == ['doc1']
-    assert search(docs, 'Shoot') == ['doc1']
-
-
-def test_search_empty_or_no_match():
-    """Test empty results for empty docs or no match."""
+def test_search_hello():
     docs = [
-        {'id': 'doc1', 'text': 'Some random text.'},
+        Doc("1", "hello world"),
+        Doc("2", "hi there"),
+        Doc("3", "world hello"),
     ]
-    assert search([], 'shoot') == []
-    assert search(docs, 'nofound') == []
-    assert search(docs, '!') == []
+    assert search(docs, "hello") == ["1", "3"]
 
+
+def test_search_not_found():
+    docs = [Doc("1", "foo bar")]
+    assert search(docs, "baz") == []
+
+
+def test_search_exact_word():
+    docs = [Doc("1", "cat cats caterpillar")]
+    assert search(docs, "cat") == ["1"]
+
+
+def test_search_empty():
+    docs = []
+    assert search(docs, "cat") == []
+
+
+def test_search_full_empty():
+    docs = []
+    assert search(docs, "") == []
+
+
+def test_search_with_space():
+    docs = [
+        Doc("1", "foo bar"),
+    ]
+    assert search(docs, " ") == []
+
+
+def test_search_space():
+    docs = [
+        Doc("1", "      "),
+    ]
+    assert search(docs, " ") == []
+
+
+def test_search_preprocessing():
+    docs = [
+        Doc("1", "foo... bar!"),
+    ]
+    assert search(docs, "foo") == ["1"]
+    assert search(docs, "foo...") == ["1"]
+    assert search(docs, "bar") == ["1"]
+    assert search(docs, "bar!") == ["1"]
+
+    docs = [
+        Doc("1", "Hello!!!! _WorlD"),
+        Doc("2", "hellow world"),  # not in result
+    ]
+    assert search(docs, "hello") == ["1"]
+
+
+def test_search_multiple_words():
+    docs = [
+        Doc("1", "hello world"),
+        Doc("2", "Hello!!!! _WorlD"),
+        Doc("3", "hellow world"),
+        Doc("4", "hellow worldw"),
+    ]
+    assert search(docs, "hello world") == ["1", "2", "3"]
+
+
+def test_search_requirements_doc():
+    """
+    Тут лежат тесты описанные в требовании
+    """
+    docs = [
+        Doc("doc1", "I can't shoot straight unless I've had a pint!"),
+    ]
+    assert search(docs, "pint") == ["doc1"]
+    assert search(docs, "pint!") == ["doc1"]
+
+
+def test_search_ranking():
+    docs = [
+        Doc("doc1", "I can't shoot straight unless I've had a pint!"),
+        Doc("doc2", "Don't shoot shoot shoot that thing at me."),
+        Doc("doc3", "I'm your shooter."),
+    ]
+    assert search(docs, "shoot") == ["doc2", "doc1"]
+
+
+def test_search_same_rank():
+    docs = [
+        Doc("doc1", "Don't shoot shoot shoot that thing at me."),
+        Doc("doc2", "Don't shoot shoot shoot that thing at me."),
+        Doc("doc3", "Don't shoot shoot shoot that thing at me.."),
+    ]
+    assert search(docs, "shoot") == ["doc1", "doc2", "doc3"]
